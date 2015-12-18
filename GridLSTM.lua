@@ -18,7 +18,7 @@ function layer:__init(opt)
   self.input_encoding_size = utils.getopt(opt, 'input_encoding_size')
   self.vocab_size = utils.getopt(opt, 'vocab_size')
   self.batch_size = utils.getopt(opt, 'batch_size')
-  self.lookup_table = nn.LookupTable(self.vocab_size + 1, self.input_encoding_size)
+  self.lookup_table = nn.LookupTable(self.vocab_size, self.rnn_size)
   
   self:_createInitState(self.batch_size)
 end
@@ -31,7 +31,7 @@ function layer:_createInitState(batch_size)
   -- construct the initial state for the LSTM
   if not self.init_state then self.init_state = {} end -- lazy init
  
-  for h=1, 2*self.num_layers*dim do
+  for h=1, 2*self.num_layers do
     -- note, the init state Must be zeros because we are using init_state to init grads in backward call too
     if self.init_state[h] then
       if self.init_state[h]:size(1) ~= batch_size then
@@ -62,30 +62,43 @@ input is a torch.LongTensor of size DxN, elements 1..M
 returns a DxN torch.LongTensor giving softmax outputs.
 --]]
 function layer:updateOutput(input)
-
-	-- clones is a [t x dim] matrix of LSTM cells, i.e.
-	-- clones[3,2] indexes the first layer's depth LSTM at time 3
-	-- clones[3,1] indexes the first layer's temporal LSTM at time 3
-
+    -- clones is a sequence length set of clones of the grid-lstm core
     if self.clones == nil then self:createClones() end -- lazily create clones on first forward pass
 
     local batch_size = input:size(1)
     self.output:resize(self.seq_length, batch_size)
 
-    -- set the initial memory and hidden states to zeros
+    -- set the initial memory and hidden states to zeros along the time dimension
     self.state = {[0] = self.init_state}
+    self.inputs = {}
+    self.lookup_tables_inputs = {}
+
+    -- Iterate the sequence, collect predictions
     for t=1, self.seq_length do
 
-    	-- embed the input in memory and hidden space?
-    	xt = ??
+    	-- Embed the input in memory and hidden space
+      -- The paper says "A data point is projected into the network via a pair 
+      -- of input hidden and memory vectors along one of the sides of the grid".
+      -- I assume that means a lookup table for each? Zeros for the memory vector?
+      -- Idk, can experiment a bit here.
+      
+      local input_c_d = torch.zeros(batch_size, self.rnn_size)
+      
+      self.lookup_tables_inputs[t] = input
+      local inputs_h_d = self.lookup_tables[t]:forward(input) -- NxK sized input (token embedding vectors)
+    	
     	-- construct the inputs
-    	self.inputs[t] = {xt, unpack(self.state[t-1])}
+    	self.inputs[t] = {input_c_d, inputs_h_d, unpack(self.state[t-1])}
 	    
 	    -- forward the network
-        local out = self.clones[t]:forward(self.inputs[t])
-        self.output[t] = out[#out] -- last element is the prediction
+      local out = self.clones[t]:forward(self.inputs[t])
 
-
+      -- process the outputs
+      local depth_dim = 1
+      local time_dim = 2
+      self.output[t] = out[depth_dim][#out] -- last element is the prediction
+      self.state[t] = {} -- the rest is state
+      for i=1,self.num_state do table.insert(self.state[t], out[time_dim][i]) end
     end
     return self.output -- softmax outputs
 end
@@ -96,32 +109,3 @@ gradOutput is an (D+2)xNx(M+1) Tensor.
 --]]
 function layer:updateGradInput(input, gradOutput)
 end
-
-
-function LSTM(rnn_size, dim)
-    local H = nn.Identity()()
-    local prev_c = nn.Identity()()
-    local prev_h = nn.Identity()()
-
-    local function new_input_sum()
-        -- transforms input
-        local i2h            = nn.Linear(rnn_size * dim, rnn_size)(H)
-        -- transforms previous timestep's output
-        local h2h            = nn.Linear(rnn_size, rnn_size)(prev_h)
-        return nn.CAddTable()({i2h, h2h})
-    end
-
-    local in_gate          = nn.Sigmoid()(new_input_sum())
-    local forget_gate      = nn.Sigmoid()(new_input_sum())
-    local out_gate         = nn.Sigmoid()(new_input_sum())
-    local in_transform     = nn.Tanh()(new_input_sum())
-
-    local next_c           = nn.CAddTable()({
-        nn.CMulTable()({forget_gate, prev_c}),
-        nn.CMulTable()({in_gate,     in_transform})
-    })
-    local next_h           = nn.CMulTable()({out_gate, nn.Tanh()(next_c)})
-
-    return nn.gModule({H, prev_c, prev_h}, {next_h, next_c})
-end
-

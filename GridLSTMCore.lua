@@ -93,33 +93,32 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout, tie_w
   -- Note that prev_c and prev_h for layer 1, dimension 1 is just the input projected into the respective vectors
   local inputs = {}
 
-  table.insert(inputs, nn.Identity()()) -- input c_d
-  table.insert(inputs, nn.Identity()()) -- input h_d
+  table.insert(inputs, nn.Identity()()) -- input c for depth dimension
+  table.insert(inputs, nn.Identity()()) -- input h for depth dimension
 
-  local outputs = {}
-  for d=1,dim do
-    inputs[d]={}
-    outputs[d]={}
-  end
   -- Set up inputs for each dimension and each layer
   for L = 1,n do
-    for d = 1,dim do
-      table.insert(inputs[d], nn.Identity()()) -- prev_c[L] for dim d
-      table.insert(inputs[d], nn.Identity()()) -- prev_h[L] for dim d
-    end
+    table.insert(inputs, nn.Identity()()) -- prev_c[L] for time dimension
+    table.insert(inputs, nn.Identity()()) -- prev_h[L] for time dimension
   end
 
-  local depth_dim = 1 
-  local time_dim = 2
   local shared_weights
+
+  -- Create a table of outputs of size #dim
+  local outputs = {}
+  local depth_dim = 1
+  local time_dim = 2
+  for i=1,dim do
+    table.insert(outputs, {})
+  end
 
   -- from bottom layer to top layer,
   -- map inputs to hidden layer,
   for L = 1,n do
 
     -- take prev_c_t, prev_h_t from inputs
-    local prev_c_t = inputs[time_dim][L*2-1]
-    local prev_h_t = inputs[time_dim][L*2]
+    local prev_c_t = inputs[L*2+1]
+    local prev_h_t = inputs[L*2+2]
 
     -- if in first layer, take prev_c_d, prev_h_d from inputs
     -- else if in layers 2...N, take them from layer below
@@ -127,9 +126,6 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout, tie_w
     local prev_h_d
     if L == 1 then
       -- in first layer
-      -- prev_c_d = inputs[depth_dim][L*2-1]
-      -- prev_h_d = inputs[depth_dim][L*2]
-
       prev_c_d = inputs[1] -- input_c_d
       prev_h_d = inputs[2] -- input_h_d
 
@@ -157,10 +153,10 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout, tie_w
     -- for an explanation http://arxiv.org/pdf/1507.01526v2.pdf    
     local next_c_d, next_h_d = lstm(next_h_t, prev_h_d, rnn_size, shared_weights) 
 
-    table.insert(outputs[time_dim], next_c_t)
-    table.insert(outputs[time_dim], next_h_t)
     table.insert(outputs[depth_dim], next_c_d)
     table.insert(outputs[depth_dim], next_h_d)
+    table.insert(outputs[time_dim], next_c_t)
+    table.insert(outputs[time_dim], next_h_t)
   end
 
   -- set up the decoder
@@ -168,8 +164,10 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout, tie_w
   if dropout > 0 then top_h = nn.Dropout(dropout)(top_h):annotate{name='drop_final'} end
   local proj = nn.Linear(rnn_size, output_size)(top_h):annotate{name='decoder'}
   local logsoft = nn.LogSoftMax()(proj)
-  table.insert(outputs, logsoft)
+  table.insert(outputs[depth_dim], logsoft)
 
+  -- for N layers, you'll have 2*N outputs for the time dimension,
+  -- (2*N)+1 outputs for the depth dimension (+1 for the output)
   return nn.gModule(inputs, outputs)
 end
 
