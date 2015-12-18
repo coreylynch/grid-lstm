@@ -44,6 +44,17 @@ function layer:_createInitState(batch_size)
   self.num_state = #self.init_state
 end
 
+function layer:createClones()
+  -- construct the temporal clones
+  print('constructing clones inside the GridLSTM layer')
+  self.clones = {self.core}
+  self.lookup_tables = {self.lookup_table}
+  for t=2,self.seq_length+2 do
+    self.clones[t] = self.core:clone('weight', 'bias', 'gradWeight', 'gradBias')
+    self.lookup_tables[t] = self.lookup_table:clone('weight', 'gradWeight')
+  end
+end
+
 --[[
 input is a torch.LongTensor of size DxN, elements 1..M
    where M = opt.vocab_size, D = opt.input_seq_length, and N = opt.batch_size

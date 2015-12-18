@@ -7,14 +7,22 @@ Inputs:
   prev_h_t: previous hidden state along the temporal dimension
   prev_h_d: previous hidden state along the depth dimension
   rnn_size: size of the internal state vectors
+  shared_weights: reference weights for all layers to share if we're doing weight tying.
 Returns:
   next_c: the transformed memory cell
   next_h: the transformed hidden state
 ]]--
-function lstm(prev_h_t, prev_h_d, rnn_size)
+function lstm(prev_h_t, prev_h_d, rnn_size, shared_weights)
   -- evaluate the input sums at once for efficiency
   local t2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h_t):annotate{name='i2h_'..L}
   local d2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h_d):annotate{name='h2h_'..L}
+  
+  -- if shared weights is set, tie all the transform weights and gradients
+  if shared_weights then
+    t2h.data.module:share(shared_weights[1].data.module, 'weight', 'bias', 'gradWeight', 'gradBias')
+    d2h.data.module:share(shared_weights[2].data.module, 'weight', 'bias', 'gradWeight', 'gradBias')
+  end
+
   local all_input_sums = nn.CAddTable()({t2h, d2h})
 
   local reshaped = nn.Reshape(4, rnn_size)(all_input_sums)
@@ -51,29 +59,25 @@ GridLSTM:
 
 --]]
 local GridLSTM = {}
-function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout)
+function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout, tie_weights)
   dropout = dropout or 0 
 
-
-  local x = nn.Identity()()
-  local m_x = nn.Linear(input_size, rnn_size)(x)
-  local h_x = nn.Linear(input_size, rnn_size)(x)
-
+  -- subscript t refers to time dimension, subscript d refers to depth dimension vv
+  --
   -- Layer 1
-  -- input is x, mapped to (m_x, h_x)
-  -- H = [h_x, prev_h_2]
-  -- m_2_next, h_2_next = LSTM_2(H)
-  -- H_prime = (h_x, h_2_next)
-  -- m_1_next, h_1_next = LSTM_1(H_prime)
-  -- outputs = {m_1_next, h_1_next, m_2_next, h_2_next}
-  
+  -- receive input mapped to (m_x, h_x)
+  -- H = [h_x, prev_h_t]
+  -- m_t_next, h_t_next = LSTM_t(H)
+  -- H_prime = (h_x, h_t_next)
+  -- m_d_next, h_d_next = LSTM_d(H_prime)
+  -- outputs = {m_d_next, h_d_next, m_t_next, h_t_next}
 
   -- Layer 2...L
-  -- H = [prev_h_1, prev_h_2]
-  -- m_2_next, h_2_next = LSTM_2(H)
-  -- H_prime = (h_x, h_2_next)
-  -- m_1_next, h_1_next = LSTM_1(H_prime)
-  -- outputs = {m_1_next, h_1_next, m_2_next, h_2_next}
+  -- H = [prev_h_d, prev_h_t]
+  -- m_t_next, h_t_next = LSTM_t(H)
+  -- H_prime = (h_x, h_t_next)
+  -- m_d_next, h_d_next = LSTM_d(H_prime)
+  -- outputs = {m_d_next, h_d_next, m_t_next, h_t_next}
 
   -- There will be 2*n*d inputs
   -- Note that prev_c and prev_h for layer 1, dimension 1 is just the input projected into the respective vectors
@@ -88,9 +92,16 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout)
   -- There will be 2*n*d inputs, or 2*n indexed by dimension
   -- Note that prev_c and prev_h for layer 1, dimension 1 is just the input projected into the respective vectors
   local inputs = {}
+
+  table.insert(inputs, nn.Identity()()) -- input c_d
+  table.insert(inputs, nn.Identity()()) -- input h_d
+
+  local outputs = {}
   for d=1,dim do
     inputs[d]={}
+    outputs[d]={}
   end
+  -- Set up inputs for each dimension and each layer
   for L = 1,n do
     for d = 1,dim do
       table.insert(inputs[d], nn.Identity()()) -- prev_c[L] for dim d
@@ -98,11 +109,9 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout)
     end
   end
 
-  local x, input_size_L
-  local outputs = {}
-
-  local depth_dim = 1
+  local depth_dim = 1 
   local time_dim = 2
+  local shared_weights
 
   -- from bottom layer to top layer,
   -- map inputs to hidden layer,
@@ -118,8 +127,17 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout)
     local prev_h_d
     if L == 1 then
       -- in first layer
-      prev_c_d = inputs[depth_dim][L*2-1]
-      prev_h_d = inputs[depth_dim][L*2]
+      -- prev_c_d = inputs[depth_dim][L*2-1]
+      -- prev_h_d = inputs[depth_dim][L*2]
+
+      prev_c_d = inputs[1] -- input_c_d
+      prev_h_d = inputs[2] -- input_h_d
+
+      -- If we're tying weights along the depth dimension (as suggested in the paper),
+      -- create reference weights in the first layer and hand them in to all subsequent
+      -- layers to be shared.
+      if tie_weights then
+        shared_weights = {nn.Linear(rnn_size, 4 * rnn_size), nn.Linear(rnn_size, 4 * rnn_size)}
     else
       -- in layers 2...N
       prev_c_d = outputs[depth_dim][((L-1)*2)-1]
@@ -130,26 +148,23 @@ function GridLSTM.grid_lstm(input_size, output_size, rnn_size, n, dropout)
     -- H by concatenating [prev_h_d, prev_h_t]
     local H = nn.JoinTable(1)({prev_h_d, prev_h_t})
 
-    -- Do a forward pass on LSTM_t, giving next temporal memory cell and next temporal hidden state,
-    -- e.g. c_t_next, h_t_next = LSTM_t(H)
+    -- Do a forward pass on the LSTM pointing in the time direction
     local next_c_t, next_h_t = lstm(prev_h_t, prev_h_d, rnn_size)
 
+    -- Do a forward pass on LSTM pointing in the depth direction (towards output)
     -- Prioritize the depth dimension by using the modulated temporal hidden state as input
     -- instead of the previous temporal hidden state. See section 3.2 of this
-    -- for an explanation http://arxiv.org/pdf/1507.01526v2.pdf
-    local next_c_d, next_h_d = lstm(next_h_t, prev_h_d, rnn_size) 
-    
-    -- H_prime = (h_x, h_2_next)
-    -- m_1_next, h_1_next = LSTM_1(H_prime)
-    -- outputs = {m_1_next, h_1_next, m_2_next, h_2_next}
+    -- for an explanation http://arxiv.org/pdf/1507.01526v2.pdf    
+    local next_c_d, next_h_d = lstm(next_h_t, prev_h_d, rnn_size, shared_weights) 
 
-
-    table.insert(outputs, next_c)
-    table.insert(outputs, next_h)
+    table.insert(outputs[time_dim], next_c_t)
+    table.insert(outputs[time_dim], next_h_t)
+    table.insert(outputs[depth_dim], next_c_d)
+    table.insert(outputs[depth_dim], next_h_d)
   end
 
   -- set up the decoder
-  local top_h = outputs[#outputs]
+  local top_h = outputs[depth_dim][#outputs]
   if dropout > 0 then top_h = nn.Dropout(dropout)(top_h):annotate{name='drop_final'} end
   local proj = nn.Linear(rnn_size, output_size)(top_h):annotate{name='decoder'}
   local logsoft = nn.LogSoftMax()(proj)
