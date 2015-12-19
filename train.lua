@@ -24,6 +24,7 @@ require 'util.misc'
 local CharSplitLMMinibatchLoader = require 'util.CharSplitLMMinibatchLoader'
 local model_utils = require 'util.model_utils'
 local LSTM = require 'model.LSTM'
+local GridLSTM = require 'model.GridLSTM'
 local GRU = require 'model.GRU'
 local RNN = require 'model.RNN'
 
@@ -146,12 +147,15 @@ else
     protos = {}
     if opt.model == 'lstm' then
         protos.rnn = LSTM.lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+    elseif opt.model == 'grid_lstm' then
+        protos.rnn = GridLSTM.grid_lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'gru' then
         protos.rnn = GRU.gru(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'rnn' then
         protos.rnn = RNN.rnn(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     end
     protos.criterion = nn.ClassNLLCriterion()
+    protos.lookup_table = nn.LookupTable(vocab_size, opt.rnn_size)
 end
 
 -- the initial state of the cell/hidden states
@@ -161,8 +165,8 @@ for L=1,opt.num_layers do
     if opt.gpuid >=0 and opt.opencl == 0 then h_init = h_init:cuda() end
     if opt.gpuid >=0 and opt.opencl == 1 then h_init = h_init:cl() end
     table.insert(init_state, h_init:clone())
-    if opt.model == 'lstm' then
-        table.insert(init_state, h_init:clone())
+    if opt.model == 'lstm' or opt.model == 'grid_lstm' then
+        table.insert(init_state, h_init:clone()) -- extra initial state for prev_c
     end
 end
 
@@ -182,7 +186,7 @@ if do_random_init then
     params:uniform(-0.08, 0.08) -- small uniform numbers
 end
 -- initialize the LSTM forget gates with slightly higher biases to encourage remembering in the beginning
-if opt.model == 'lstm' then
+if opt.model == 'lstm' or opt.model == 'grid_lstm' then
     for layer_idx = 1, opt.num_layers do
         for _,node in ipairs(protos.rnn.forwardnodes) do
             if node.data.annotations.name == "i2h_" .. layer_idx then
@@ -235,7 +239,14 @@ function eval_split(split_index, max_batches)
         -- forward pass
         for t=1,opt.seq_length do
             clones.rnn[t]:evaluate() -- for dropout proper functioning
-            local lst = clones.rnn[t]:forward{x[t], unpack(rnn_state[t-1])}
+
+            if opt.model == "grid_lstm" then
+              rnn_inputs = {x[t], torch.zeros(batch_size, opt.rnn_size), unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
+            else
+              rnn_inputs = {x[t], unpack(rnn_state[t-1])}
+            end
+
+            local lst = clones.rnn[t]:forward(rnn_inputs)
             rnn_state[t] = {}
             for i=1,#init_state do table.insert(rnn_state[t], lst[i]) end
             prediction = lst[#lst] 
@@ -267,7 +278,14 @@ function feval(x)
     local loss = 0
     for t=1,opt.seq_length do
         clones.rnn[t]:training() -- make sure we are in correct mode (this is cheap, sets flag)
-        local lst = clones.rnn[t]:forward{x[t], unpack(rnn_state[t-1])}
+        local rnn_inputs
+        if opt.model == "grid_lstm" then
+          rnn_inputs = {x[t], torch.zeros(batch_size, opt.rnn_size), unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
+        else
+          rnn_inputs = {x[t], unpack(rnn_state[t-1])}
+        end
+
+        local lst = clones.rnn[t]:forward(rnn_inputs)
         rnn_state[t] = {}
         for i=1,#init_state do table.insert(rnn_state[t], lst[i]) end -- extract the state, without output
         predictions[t] = lst[#lst] -- last element is the prediction
@@ -280,11 +298,13 @@ function feval(x)
     for t=opt.seq_length,1,-1 do
         -- backprop through loss, and softmax/linear
         local doutput_t = clones.criterion[t]:backward(predictions[t], y[t])
-        table.insert(drnn_state[t], doutput_t)
-        local dlst = clones.rnn[t]:backward({x[t], unpack(rnn_state[t-1])}, drnn_state[t])
+        table.insert(drnn_state[t], doutput_t) -- <- drnn_state[t] already has a list of derivative vectors for rnn state pointing to the next time step; just adding the derivative from loss pointing up. 
+        local dlst = clones.rnn[t]:backward(rnn_inputs, drnn_state[t]) -- <- right here, you're appending the doutput_t to the list of dLdh for all layers, then using that big list to backprop into the input and unpacked rnn state vecs at t-1
         drnn_state[t-1] = {}
+        local skip_index
+        if opt.model == "grid_lstm" then skip_index = 2 else skip_index = 1 end
         for k,v in pairs(dlst) do
-            if k > 1 then -- k == 1 is gradient on x, which we dont need
+            if k > skip_index then -- k <= skip_index is gradient on inputs, which we dont need
                 -- note we do k-1 because first item is dembeddings, and then follow the 
                 -- derivatives of the state, starting at index 2. I know...
                 drnn_state[t-1][k-1] = v
