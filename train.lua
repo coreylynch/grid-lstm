@@ -18,13 +18,14 @@ require 'nn'
 require 'nngraph'
 require 'optim'
 require 'lfs'
+require 'cudnn'
 
 require 'util.OneHot'
 require 'util.misc'
 local CharSplitLMMinibatchLoader = require 'util.CharSplitLMMinibatchLoader'
 local model_utils = require 'util.model_utils'
 local LSTM = require 'model.LSTM'
-local GridLSTM = require 'model.GridLSTM'
+local GridLSTM2 = require 'model.GridLSTM2'
 local GRU = require 'model.GRU'
 local RNN = require 'model.RNN'
 
@@ -39,6 +40,7 @@ cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain th
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm, gru or rnn')
+cmd:option('-tie_weights', 1, 'tie grid lstm weights?')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
@@ -148,14 +150,13 @@ else
     if opt.model == 'lstm' then
         protos.rnn = LSTM.lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'grid_lstm' then
-        protos.rnn = GridLSTM.grid_lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+        protos.rnn = GridLSTM2.grid_lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout, opt.tie_weights)
     elseif opt.model == 'gru' then
         protos.rnn = GRU.gru(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'rnn' then
         protos.rnn = RNN.rnn(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     end
     protos.criterion = nn.ClassNLLCriterion()
-    protos.lookup_table = nn.LookupTable(vocab_size, opt.rnn_size)
 end
 
 -- the initial state of the cell/hidden states
@@ -239,9 +240,9 @@ function eval_split(split_index, max_batches)
         -- forward pass
         for t=1,opt.seq_length do
             clones.rnn[t]:evaluate() -- for dropout proper functioning
-
             if opt.model == "grid_lstm" then
-              rnn_inputs = {x[t], torch.zeros(batch_size, opt.rnn_size), unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
+              local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size):float():cuda()
+              rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
             else
               rnn_inputs = {x[t], unpack(rnn_state[t-1])}
             end
@@ -280,7 +281,9 @@ function feval(x)
         clones.rnn[t]:training() -- make sure we are in correct mode (this is cheap, sets flag)
         local rnn_inputs
         if opt.model == "grid_lstm" then
-          rnn_inputs = {x[t], torch.zeros(batch_size, opt.rnn_size), unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
+          local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
+          input_mem_cell = input_mem_cell--:float():cuda()
+          rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
         else
           rnn_inputs = {x[t], unpack(rnn_state[t-1])}
         end
@@ -307,7 +310,7 @@ function feval(x)
             if k > skip_index then -- k <= skip_index is gradient on inputs, which we dont need
                 -- note we do k-1 because first item is dembeddings, and then follow the 
                 -- derivatives of the state, starting at index 2. I know...
-                drnn_state[t-1][k-1] = v
+                drnn_state[t-1][k-skip_index] = v
             end
         end
     end
