@@ -25,7 +25,7 @@ require 'util.misc'
 local CharSplitLMMinibatchLoader = require 'util.CharSplitLMMinibatchLoader'
 local model_utils = require 'util.model_utils'
 local LSTM = require 'model.LSTM'
-local GridLSTM2 = require 'model.GridLSTM2'
+local GridLSTM = require 'model.GridLSTM'
 local GRU = require 'model.GRU'
 local RNN = require 'model.RNN'
 
@@ -150,7 +150,7 @@ else
     if opt.model == 'lstm' then
         protos.rnn = LSTM.lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'grid_lstm' then
-        protos.rnn = GridLSTM2.grid_lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout, opt.tie_weights)
+        protos.rnn = GridLSTM.grid_lstm(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout, opt.tie_weights)
     elseif opt.model == 'gru' then
         protos.rnn = GRU.gru(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     elseif opt.model == 'rnn' then
