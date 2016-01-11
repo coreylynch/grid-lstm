@@ -241,7 +241,10 @@ function eval_split(split_index, max_batches)
         for t=1,opt.seq_length do
             clones.rnn[t]:evaluate() -- for dropout proper functioning
             if opt.model == "grid_lstm" then
-              local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size):float():cuda()
+              local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
+              if opt.gpuid >= 0 and opt.opencl == 0 then
+                input_mem_cell = input_mem_cell:float():cuda()
+              end
               rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
             else
               rnn_inputs = {x[t], unpack(rnn_state[t-1])}
@@ -282,7 +285,9 @@ function feval(x)
         local rnn_inputs
         if opt.model == "grid_lstm" then
           local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
-          input_mem_cell = input_mem_cell--:float():cuda()
+          if opt.gpuid >= 0 and opt.opencl == 0 then
+            input_mem_cell = input_mem_cell:float():cuda()
+          end
           rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
         else
           rnn_inputs = {x[t], unpack(rnn_state[t-1])}

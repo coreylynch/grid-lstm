@@ -109,7 +109,8 @@ function GridLSTM2.grid_lstm(input_size, rnn_size, n, dropout, should_tie_weight
     local t2h_d = nn.Linear(rnn_size, 4 * rnn_size)(next_h_t):annotate{name='i2h_'..L}
     local d2h_d = nn.Linear(rnn_size, 4 * rnn_size)(prev_h_d):annotate{name='h2h_'..L}
 
-    if tie_weights == 1 then
+    if should_tie_weights == 1 then
+      print("tying weights along the depth dimension")
       t2h_d.data.module:share(shared_weights[1], 'weight', 'bias', 'gradWeight', 'gradBias')
       d2h_d.data.module:share(shared_weights[2], 'weight', 'bias', 'gradWeight', 'gradBias')
     end
