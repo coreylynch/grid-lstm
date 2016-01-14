@@ -39,7 +39,7 @@ cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain th
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
-cmd:option('-model', 'lstm', 'lstm, gru or rnn')
+cmd:option('-model', 'lstm', 'lstm, grid_lstm, gru, or rnn')
 cmd:option('-tie_weights', 1, 'tie grid lstm weights?')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
