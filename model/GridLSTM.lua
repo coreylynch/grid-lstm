@@ -1,7 +1,7 @@
 require 'nn'
 require 'nngraph'
 --[[
-  This is called once per dimension in grid LSTM to create the gated
+  This is called once per dimension inside a grid LSTM block to create the gated
   update of the dimension's hidden state and memory cell.
 
   It takes h_t and h_d, the hidden states from the temporal and 
