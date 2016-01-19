@@ -35,11 +35,12 @@ end
 --[[
   GridLSTM:
     1) Map input x into memory and hidden cells m(1), h(1) along the depth dimension.
-    2) Concatenate hidden cells from time and depth dimensions, [h(1), h(2)] into H.
+    2) Concatenate previous hidden states from time and depth dimensions, [h(1), h(2)] into H.
     3) Forward the time LSTM, LSTM_2(H) -> h(2)', m(2)'.
     4) Concatenate transformed h(2)' and h(1) into H' = [h(1), h(2)']
     5) Forward the depth LSTM, LSTM_1(H') -> h(1)', m(1)'
-    6) Either repeat 1-5 for another layer or map h(1)' to a character prediction.
+    6) Either repeat 2-5 for another layer or map h(1)', the final hidden state along the depth 
+       dimension, to a character prediction.
   --]]
 local GridLSTM = {}
 function GridLSTM.grid_lstm(input_size, rnn_size, n, dropout, should_tie_weights)
