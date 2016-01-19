@@ -10,7 +10,7 @@ th train.lua -model grid_lstm
 ### Intro
 2D Grid LSTM differs from traditional stacked LSTM by adding LSTM cells along the depth dimension of the network as well as the temporal dimension. That is, each layer uses both a hidden state and a memory cell to communicate to the next. This gives the depth dimension the same gradient channeling properties available along the temporal dimension, helping to mitigate the vanishing gradient problem in networks with many layers and allowing layers to dynamically select or ignore their inputs. 
 
-## Small Experiment on Wikipedia
+### Small Experiment on Wikipedia
 Since the promise of 2D grid LSTMs seems to be the ability to train deeper recurrent nets, I wanted to see the advantages in action on a dataset complex enough to warrant some depth, so I ran a small experiment similar to section 4.3 of the paper: character-level language modeling on the 100m character [Hutter challenge](http://prize.hutter1.net/) Wikipedia dataset. (For an actual evaluation of these models, see the original paper; this was just a sanity check.)
 
 ### Training details
