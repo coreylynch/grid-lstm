@@ -13,7 +13,7 @@ th train.lua -model grid_lstm
 ### Small Experiment on Wikipedia
 Since the promise of 2D grid LSTMs seems to be the ability to train deeper recurrent nets, I wanted to see the advantages in action on a dataset complex enough to warrant some depth, so I ran a small experiment similar to section 4.3 of the paper: character-level language modeling on the 100m character [Hutter challenge](http://prize.hutter1.net/) Wikipedia dataset. (For an actual evaluation of these models, see the original paper; this was just a sanity check.)
 
-### Training details
+#### Training details
 I set up 4 models:
 * 3 layer Stacked LSTM
 * 3 layer Grid LSTM
@@ -26,7 +26,7 @@ Each Grid LSTM has tied weights along the depth dimension as described in sectio
 
 I split the 100 million character dataset 95% training / 5% validation.
 
-### Results
+#### Results
 Here's the model's validation curves after running over the weekend:
 
 ![](https://github.com/coreylynch/grid-lstm/blob/master/val_curves.png)
