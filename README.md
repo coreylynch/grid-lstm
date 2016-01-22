@@ -34,7 +34,7 @@ Here's the model's validation curves after running over the weekend:
 > **NOTE**  
 > Stacked LSTM w/ 6 layers flatlined w/ an average validation loss of 3.53 and is not shown.
 
-Interestingly, I was basically unable to get the 6 layer stacked LSTM to learn anything (the validation loss flatlined at an average of 3.53 over the training period), whereas grid LSTM easily handled 6 layers. This was nice confirmation that the gated linear transfer along the depth dimension does indeed help train significantly deeper networks. I also found it interesting that a 6 layer grid LSTM network converged to basically the same loss as a 3 layer grid LSTM network. I suspected the problem would benefit from additional depth, but I also trained without dropout so it might just need some additional regularization. I'll rerun and update.
+Interestingly, I was basically unable to get the 6 layer stacked LSTM to learn anything (the validation loss flatlined at an average of 3.53 over the training period), whereas grid LSTM easily handled 6 layers. This was nice confirmation that the gated linear transfer along the depth dimension does indeed help train significantly deeper networks. I also found it interesting that a 6 layer grid LSTM network converged to basically the same loss as a 3 layer grid LSTM network. I suspected the problem would benefit from additional depth, but I also trained without dropout so it might just need some additional regularization. (Rerunning with dropout now and will post results soon)
 
 ### Cool related papers
 There are a few contemporary architectures that provide similar gradient channeling along network depth: 
