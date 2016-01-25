@@ -20,21 +20,31 @@ I set up 4 models:
 * 6 layer Stacked LSTM
 * 6 layer Grid LSTM
 
-Each model has 1000 units per layer, is trained with rmsprop, has an initial learning rate of 0.001, and uses the default weight decay settings from the char-rnn repo. I train on 50 length character sequences of batch size 50.
+Each model has 1000 units per layer, is trained with rmsprop, has an initial learning rate of 0.001, and uses the default weight decay and gradient clipping settings from the char-rnn repo. I train on 50 length character sequences of batch size 50. I add 25% dropout on the non-recurrent connections to all models.
 
 Each Grid LSTM has tied weights along the depth dimension as described in section 3.5. I also 'prioritize' the depth dimension of the network (section 3.2) by computing the transformed temporal hidden state prior to handing it to the depth LSTM.
 
 I split the 100 million character dataset 95% training / 5% validation.
 
 #### Results
-Here's the model's validation curves after running over the weekend:
+Here are each models' validation curves:
 
 ![](https://github.com/coreylynch/grid-lstm/blob/master/val_curves.png)
 
-> **NOTE**  
-> Stacked LSTM w/ 6 layers flatlined w/ an average validation loss of 3.53 and is not shown.
+It's clear from the graph that grid LSTM converges to a better model than stacked LSTM on this task. The best grid LSTM network (6 layers) has a 4.61% lower validation loss than the best stacked LSTM (3 layers). This was nice confirmation that the linear LSTM gating mechanism along the depth dimension does indeed help when training deeper recurrent networks. 
 
-Interestingly, I was basically unable to get the 6 layer stacked LSTM to learn anything (the validation loss flatlined at an average of 3.53 over the training period), whereas grid LSTM easily handled 6 layers. This was nice confirmation that the gated linear transfer along the depth dimension does indeed help train significantly deeper networks. I also found it interesting that a 6 layer grid LSTM network converged to basically the same loss as a 3 layer grid LSTM network. I suspected the problem would benefit from additional depth, but I also trained without dropout so it might just need some additional regularization. I'll rerun and update.
+I was trying to reason for myself about why this kind of linear information flow along the depth of the network might be so beneficial. One story I could imagine goes like this:
+
+Say a memory cell in a lower layer in the network activates when inside a URL ([Karpathy and Johnson](http://arxiv.org/pdf/1506.02078v2.pdf) find many concrete examples of character language model LSTMs using their memory cells to remember long-range information just like this, like cells that activate inside quotes, inside comments, with increasing strength relative to line position, etc.). 
+
+Let’s also suppose that this "am I inside a URL?" memory cell's current activation value is relevant to a higher layer’s processing. 
+
+In traditional stacked LSTM, this information in the lower cell has to travel through an output gate, a tanh nonlinearity, an input gate and another tanh nonlinearity to reach the upper cell. 
+
+A grid LSTM network, on the other hand, can write the information to a lower cell, close the forget gate on it carrying it across multiple layers, then expose the information directly to some higher layer. This replaces the prior path through multiple non-linearities with a linear identity transformation, modulated by a forget gate.
+
+### Note on Dropout
+Dropout proved to be necessary in getting the best performance out of both traditional stacked LSTMs and grid LSTMs for this task. Interestingly, without dropout I was unable to train a 6 layer stacked LSTM on this dataset (the validation loss flatlined over the training period with an average loss of 3.53), whereas I was able to train a 6 layer grid LSTM easily with no dropout. For more regularizing LSTMs with dropout, see [this](http://arxiv.org/abs/1409.2329).
 
 ### Cool related papers
 There are a few contemporary architectures that provide similar gradient channeling along network depth: 

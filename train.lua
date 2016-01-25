@@ -36,6 +36,9 @@ cmd:text()
 cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
+-- task params
+cmd:option('-task', 'char', 'task to train on: char, addition')
+cmd:option('-digit_length', 4, 'length of the digits to add for the addition task')
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
@@ -223,6 +226,22 @@ function prepro(x,y)
     return x,y
 end
 
+function get_input_mem_cell()
+    local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
+    if opt.gpuid >= 0 and opt.opencl == 0 then
+      input_mem_cell = input_mem_cell:float():cuda()
+    end
+    return input_mem_cell
+end
+
+function get_zeroed_d_output_t(vocab_size)
+    local zeroed_d_output_t = torch.zeros(opt.batch_size, vocab_size)
+    if opt.gpuid >= 0 and opt.opencl == 0 then
+      zeroed_d_output_t = zeroed_d_output_t:float():cuda()
+    end
+    return zeroed_d_output_t
+end
+
 -- evaluate the loss over an entire split
 function eval_split(split_index, max_batches)
     print('evaluating loss over split index ' .. split_index)
@@ -231,8 +250,10 @@ function eval_split(split_index, max_batches)
 
     loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
+    local accy = 0
+    local normal = 0
     local rnn_state = {[0] = init_state}
-    
+
     for i = 1,n do -- iterate over batches in the split
         -- fetch a batch
         local x, y = loader:next_batch(split_index)
@@ -241,19 +262,23 @@ function eval_split(split_index, max_batches)
         for t=1,opt.seq_length do
             clones.rnn[t]:evaluate() -- for dropout proper functioning
             if opt.model == "grid_lstm" then
-              local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
-              if opt.gpuid >= 0 and opt.opencl == 0 then
-                input_mem_cell = input_mem_cell:float():cuda()
-              end
+              local input_mem_cell = get_input_mem_cell()
               rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
             else
               rnn_inputs = {x[t], unpack(rnn_state[t-1])}
             end
-
             local lst = clones.rnn[t]:forward(rnn_inputs)
             rnn_state[t] = {}
             for i=1,#init_state do table.insert(rnn_state[t], lst[i]) end
-            prediction = lst[#lst] 
+            prediction = lst[#lst]
+
+            local target_delimiter_position = opt.seq_length - (opt.digit_length + 2)
+            if opt.task == "addition" and t > target_delimiter_position then
+                max, pred_argmax = torch.max(prediction,2)
+                accy = accy + torch.eq(pred_argmax, y[t]):sum()
+                normal = normal + prediction:size(1)
+            end
+
             loss = loss + clones.criterion[t]:forward(prediction, y[t])
         end
         -- carry over lstm state
@@ -261,8 +286,14 @@ function eval_split(split_index, max_batches)
         print(i .. '/' .. n .. '...')
     end
 
-    loss = loss / opt.seq_length / n
-    return loss
+    local out
+    if opt.task == "addition" then
+        out = accy / normal
+    else 
+        out = loss / opt.seq_length / n
+    end
+
+    return out
 end
 
 -- do fwd/bwd and return loss, grad_params
@@ -284,15 +315,11 @@ function feval(x)
         clones.rnn[t]:training() -- make sure we are in correct mode (this is cheap, sets flag)
         local rnn_inputs
         if opt.model == "grid_lstm" then
-          local input_mem_cell = torch.zeros(opt.batch_size, opt.rnn_size)
-          if opt.gpuid >= 0 and opt.opencl == 0 then
-            input_mem_cell = input_mem_cell:float():cuda()
-          end
+          local input_mem_cell = get_input_mem_cell()
           rnn_inputs = {input_mem_cell, x[t], unpack(rnn_state[t-1])} -- if we're using a grid lstm, hand in a zero vec for the starting memory cell state
         else
           rnn_inputs = {x[t], unpack(rnn_state[t-1])}
         end
-
         local lst = clones.rnn[t]:forward(rnn_inputs)
         rnn_state[t] = {}
         for i=1,#init_state do table.insert(rnn_state[t], lst[i]) end -- extract the state, without output
@@ -300,13 +327,24 @@ function feval(x)
         loss = loss + clones.criterion[t]:forward(predictions[t], y[t])
     end
     loss = loss / opt.seq_length
+
     ------------------ backward pass -------------------
     -- initialize gradient at time t to be zeros (there's no influence from future)
     local drnn_state = {[opt.seq_length] = clone_list(init_state, true)} -- true also zeros the clones
     for t=opt.seq_length,1,-1 do
+
+        -- If we're doing the addition task and we're at t < position of target delimiter, just use a vec of zeros for dL/dOutput
+        -- We don't want to suffer prediction loss prior to the target delimiter, just recurrence loss.
+        local target_delimiter_position = opt.seq_length - (opt.digit_length + 2)
+        if opt.task == "addition" and t < target_delimiter_position then
+            doutput_t = get_zeroed_d_output_t(loader.vocab_size)
+        else
+            doutput_t = clones.criterion[t]:backward(predictions[t], y[t])
+        end
+
         -- backprop through loss, and softmax/linear
-        local doutput_t = clones.criterion[t]:backward(predictions[t], y[t])
-        table.insert(drnn_state[t], doutput_t) -- <- drnn_state[t] already has a list of derivative vectors for rnn state pointing to the next time step; just adding the derivative from loss pointing up. 
+        table.insert(drnn_state[t], doutput_t) -- drnn_state[t] already has dL/dH_t+1 vectors for every layer; just adding the dL/dOutput to the list. 
+
         local dlst = clones.rnn[t]:backward(rnn_inputs, drnn_state[t]) -- <- right here, you're appending the doutput_t to the list of dLdh for all layers, then using that big list to backprop into the input and unpacked rnn state vecs at t-1
         drnn_state[t-1] = {}
         local skip_index
@@ -339,7 +377,8 @@ for i = 1, iterations do
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
-    local _, loss = optim.rmsprop(feval, params, optim_state)
+    -- local _, loss = optim.rmsprop(feval, params, optim_state)
+    local _, loss = optim.adam(feval, params, optim_state)
     if opt.accurate_gpu_timing == 1 and opt.gpuid >= 0 then
         --[[
         Note on timing: The reported time can be off because the GPU is invoked async. If one
