@@ -43,7 +43,7 @@ A grid LSTM network, on the other hand, can write the information to a lower cel
 
 I could see how this ability to pass information unchanged through many layers might improve credit assignment and makes training easier. The authors of [Highway Networks](http://arxiv.org/abs/1505.00387) also make a convincing case for how this kind of gating mechanism between layers makes information flow more efficiently through a trained network. 
 
-### Note on Dropout
+#### Note on Dropout
 Dropout was necessary for getting the best performance out of both traditional stacked LSTMs and grid LSTMs for this task. Interestingly, without dropout I was unable to train a 6 layer stacked LSTM on this dataset (the validation loss flatlined over the training period with an average loss of 3.53), whereas I was able to train a 6 layer grid LSTM easily with no dropout. For more regularizing LSTMs with dropout, see [this](http://arxiv.org/abs/1409.2329).
 
 ### Cool related papers
