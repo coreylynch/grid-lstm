@@ -35,9 +35,7 @@ It's clear from the graph that grid LSTM converges to a better model than stacke
 
 I was trying to reason for myself about why this kind of linear information flow along the depth of the network might be so beneficial. One story I could imagine goes like this:
 
-Say a memory cell in a lower layer in the network activates when inside a URL ([Karpathy and Johnson](http://arxiv.org/pdf/1506.02078v2.pdf) find many concrete examples of character language model LSTMs using their memory cells to remember long-range information just like this, like cells that activate inside quotes, inside comments, with increasing strength relative to line position, etc.). 
-
-Let’s also suppose that this "am I inside a URL?" memory cell's current activation value is relevant to a higher layer’s processing. 
+Say a memory cell in a lower layer in the network activates when inside a URL ([Karpathy and Johnson](http://arxiv.org/pdf/1506.02078v2.pdf) find many concrete examples of character language model LSTMs using their memory cells to remember long-range information just like this, like cells that activate inside quotes, inside comments, with increasing strength relative to line position, etc.). Let’s also suppose that this "am I inside a URL?" memory cell's current activation value is relevant to a higher layer’s processing. 
 
 In traditional stacked LSTM, this information in the lower cell has to travel through an output gate, a tanh nonlinearity, an input gate and another tanh nonlinearity to reach the upper cell. 
 
