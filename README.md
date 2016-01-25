@@ -41,10 +41,12 @@ Let’s also suppose that this "am I inside a URL?" memory cell's current activa
 
 In traditional stacked LSTM, this information in the lower cell has to travel through an output gate, a tanh nonlinearity, an input gate and another tanh nonlinearity to reach the upper cell. 
 
-A grid LSTM network, on the other hand, can write the information to a lower cell, close the forget gate on it carrying it across multiple layers, then expose the information directly to some higher layer. This replaces the prior path through multiple non-linearities with a linear identity transformation, modulated by a forget gate.
+A grid LSTM network, on the other hand, can write the information to a lower cell, close the forget gate on it carrying it across multiple layers, then expose the information directly to some higher layer. This replaces the prior path through multiple non-linearities with a linear identity transformation, modulated by a forget gate. 
+
+I could see how this ability to pass information unchanged through many layers might improve credit assignment and makes training easier. The authors of [Highway Networks](http://arxiv.org/abs/1505.00387) also make a convincing case for how this kind of gating mechanism between layers makes information flow more efficiently through a trained network. 
 
 ### Note on Dropout
-Dropout proved to be necessary in getting the best performance out of both traditional stacked LSTMs and grid LSTMs for this task. Interestingly, without dropout I was unable to train a 6 layer stacked LSTM on this dataset (the validation loss flatlined over the training period with an average loss of 3.53), whereas I was able to train a 6 layer grid LSTM easily with no dropout. For more regularizing LSTMs with dropout, see [this](http://arxiv.org/abs/1409.2329).
+Dropout was necessary for getting the best performance out of both traditional stacked LSTMs and grid LSTMs for this task. Interestingly, without dropout I was unable to train a 6 layer stacked LSTM on this dataset (the validation loss flatlined over the training period with an average loss of 3.53), whereas I was able to train a 6 layer grid LSTM easily with no dropout. For more regularizing LSTMs with dropout, see [this](http://arxiv.org/abs/1409.2329).
 
 ### Cool related papers
 There are a few contemporary architectures that provide similar gradient channeling along network depth: 
