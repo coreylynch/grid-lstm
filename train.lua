@@ -377,8 +377,7 @@ for i = 1, iterations do
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
-    -- local _, loss = optim.rmsprop(feval, params, optim_state)
-    local _, loss = optim.adam(feval, params, optim_state)
+    local _, loss = optim.rmsprop(feval, params, optim_state)
     if opt.accurate_gpu_timing == 1 and opt.gpuid >= 0 then
         --[[
         Note on timing: The reported time can be off because the GPU is invoked async. If one
