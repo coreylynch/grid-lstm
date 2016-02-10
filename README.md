@@ -49,3 +49,13 @@ There are a few contemporary architectures that provide similar gradient channel
 * [Gated Feedback Recurrent Neural Networks](http://arxiv.org/abs/1502.02367)
 * [Depth-Gated LSTM](http://arxiv.org/abs/1508.03790)
 * [Highway Networks](http://arxiv.org/abs/1505.00387): The authors of the grid LSTM paper actually point out that one dimensional grid LSTM (no temporal dimension) basically corresponds to a Highway Network: a feed-forward network that uses a gated linear transfer function in place of transfer functions such as tanh and ReLU.
+
+### Sampling
+We can generate new text from a model checkpoint just like in char-rnn. Evidently, the 6 layer grid LSTM trained on the Wikipedia dataset was able to figure out the meaning of life:
+
+> The meaning of life is performed over separate categories of gold-roped diplomats.
+> ** (1) Malt, though not industriated by lots of ''birds'' and some second century, noto for infant evil and to encourage warming or design;
+
+> == Economic issues ==
+
+> Brain is made up of flavours of circuits; furrel breeding or landed identity. The word ''pine'' are categorically directed to ''education'' by its ''fish'' and [[sandman]].  When revised, foods are found as [[double burn]]s.  Some code can also be extreme and in a little border they do not ask in public cuisine, so local heat is of the universe without formally writing the life and the most violated, [[hoaxing]] environment, to it possibly for food altogether in females.  When the railroad is removed, some poison cats can be steadily looped incens across the food permutation of [[prime]].
